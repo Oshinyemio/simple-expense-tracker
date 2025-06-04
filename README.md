@@ -70,6 +70,12 @@ A fully serverless personal expense tracker built using AWS services. Users can 
 - Currently, `userId` is hardcoded in the frontend for demonstration purposes.
 - User authentication and multi-user support will be added in the advanced version.
 
+## Screenshot
+
+Here is what the Simple Expense Tracker looks like:
+
+![Simple Expense Tracker](https://github.com/Oshinyemio/simple-expense-tracker/blob/main/assets/Screenshot.png?raw=true)
+
 ---
 
 ## 📬 Contact
