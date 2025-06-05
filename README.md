@@ -123,6 +123,13 @@ If you decide later to host it publicly, you can upload `TestExpense.html` to an
 
 ---
 
+### 🧪 Local UI Preview
+
+Here’s what the local test page looks like in a browser:
+
+![Test HTML in Browser](./assets/browse-get-results.png)
+---
+
 ## 📬 Contact
 
 Ope – Aspiring Cloud Support Specialist
