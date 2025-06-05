@@ -33,15 +33,23 @@ A fully serverless personal expense tracker built using AWS services. Users can 
 
 simple-expense-tracker/
 │
-├── frontend/
-│ └── TestExpense.html 📝 # Single HTML file for testing
+├── assets/
+│   ├── browse-get-results.png 🖼️           # Screenshot showing GET results from browser
+│   ├── cors-error-console.png 🖼️           # Browser console showing CORS error
+│   ├── dynamodb-on-demand.png 🖼️           # DynamoDB capacity setting
+│   ├── lambda-permissions.png 🖼️           # IAM role permissions for Lambda
+│   ├── lambda-test-success.png 🖼️          # Successful test of Lambda writing to DynamoDB
+│   └── postman-post-success.png 🖼️         # POST request success response in Postman
 │
 ├── backend/
-│ ├── AddExpenseFunction.py 🐍 # Lambda to add a new expense
-│ └── GetExpenseFunction.py 🐍 # Lambda to retrieve expenses
+│   ├── AddExpenseFunction.py 🐍            # Lambda to add a new expense
+│   └── GetExpenseFunction.py 🐍            # Lambda to retrieve expenses
+│
+├── frontend/
+│   └── TestExpense.html 📝                 # Single HTML file for testing
 │
 └── infrastructure/
-└── ExpenseTracker_API-prod-oas30.yaml 🌐 # Exported API Gateway OpenAPI YAML
+    └── ExpenseTracker_API-prod-oas30.yaml 🌐  # Exported API Gateway OpenAPI YAML
 
 ````
 
