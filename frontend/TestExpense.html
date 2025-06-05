@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Expense Tracker</title>
+
+  <!-- Load Boogaloo Font from Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Boogaloo&display=swap" rel="stylesheet">
+
+  <style>
+    /* Base styles for body */
+    body {
+      font-family: 'Boogaloo', cursive;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 2rem;
+      color: #333;
+    }
+
+    /* Header styles */
+    h1, h2 {
+      text-align: center;
+      color: #2c3e50;
+    }
+
+    /* Form label styling */
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    /* Inputs and button styles */
+    input, textarea, button {
+      font-family: 'Boogaloo', cursive;
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+      font-size: 1.1rem;
+    }
+
+    /* Button style and hover effect */
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #2980b9;
+    }
+
+    /* Container for content */
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #fff;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Each expense block */
+    .expense {
+      background: #ecf0f1;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+
+    /* Divider */
+    hr {
+      margin: 30px 0;
+      border: none;
+      border-top: 2px dashed #ccc;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>Simple Expense Tracker</h1>
+
+    <!-- Section: Add new expense -->
+    <h2>Add Expense</h2>
+
+    <!-- Input fields -->
+    <label>User ID:</label>
+    <input type="text" id="userId" value="user1">
+
+    <label>Amount:</label>
+    <input type="number" id="amount" placeholder="e.g. 20.50">
+
+    <label>Category:</label>
+    <input type="text" id="category" placeholder="e.g. Food">
+
+    <label>Description:</label>
+    <textarea id="description" placeholder="e.g. Lunch with friends"></textarea>
+
+    <!-- Submit button for POST -->
+    <button onclick="addExpense()">Add Expense</button>
+
+    <hr>
+
+    <!-- Section: View expenses -->
+    <h2>Get Expenses</h2>
+    <button onclick="getExpenses()">View My Expenses</button>
+
+    <!-- Display results -->
+    <div id="output"></div>
+  </div>
+
+  <script>
+    // 👇 Replace with your actual API Gateway endpoint
+    const apiBaseUrl = 'https://a47raonx05.execute-api.us-east-1.amazonaws.com/prod/expenses';
+
+    // 🔄 Function to POST an expense
+    async function addExpense() {
+      // Get input values
+      const userId = document.getElementById('userId').value.trim();
+      const amount = document.getElementById('amount').value.trim();
+      const category = document.getElementById('category').value.trim();
+      const description = document.getElementById('description').value.trim();
+
+      // Construct request payload
+      const payload = { userId, amount, category, description };
+
+      try {
+        // Make POST request
+        const raw = await fetch(apiBaseUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        // Parse JSON response
+        const result = await raw.json();
+
+        // Log API response
+        console.log("📦 POST API Response:", result);
+
+        // Show user feedback
+        if (raw.ok) {
+          alert('✅ Expense added successfully');
+        } else {
+          alert('❌ Error: ' + (result.error || 'Something went wrong'));
+        }
+      } catch (error) {
+        // Log and show network error
+        console.error('❗ POST Error:', error);
+        alert('❌ Network error');
+      }
+    }
+
+    // 🔍 Function to GET expenses
+    async function getExpenses() {
+      const userId = document.getElementById('userId').value.trim();
+      const output = document.getElementById('output');
+      output.innerHTML = '🔄 Loading...';
+
+      try {
+        // Make GET request with userId query param
+        const raw = await fetch(`${apiBaseUrl}?userId=${encodeURIComponent(userId)}`, {
+          method: 'GET'
+        });
+
+        // Parse JSON response
+        const data = await raw.json();
+
+	// NEW: Log the entire response body
+	console.log("📦 Full Response Body:", data);
+
+	// These two lines assume the structure is correct
+	console.log("📊 Expenses Array:", data.expenses);
+
+
+        // Handle error responses
+        if (!raw.ok) {
+          throw new Error(data.error || 'Failed to fetch expenses');
+        }
+
+        const expenses = data.expenses || [];
+
+        // Display expenses or show "no data" message
+        if (expenses.length > 0) {
+          output.innerHTML = expenses.map(exp => `
+            <div class="expense">
+              <strong>${exp.timestamp}</strong><br>
+              ${exp.category} - $${exp.amount}<br>
+              <em>${exp.description}</em>
+            </div>
+          `).join('');
+        } else {
+          output.innerHTML = '<p>📭 No expenses found.</p>';
+        }
+      } catch (error) {
+        // Show error message to user
+        console.error('❗ GET Error:', error);
+        output.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+      }
+    }
+  </script>
+</body>
+</html>
