@@ -38,7 +38,7 @@ This project follows a serverless architecture using AWS managed services for sc
 simple-expense-tracker/
 │
 ├── assets/
-│   ├── architecture-diagram.png 🏗️ # Architecture diagram image
+│   ├── architecture-diagram.png 🖼️         # Architecture diagram image
 │   ├── browse-get-results.png 🖼️           # Screenshot showing GET results from browser
 │   ├── cors-error-console.png 🖼️           # Browser console showing CORS error
 │   ├── dynamodb-on-demand.png 🖼️           # DynamoDB capacity setting
