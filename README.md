@@ -74,7 +74,7 @@ A fully serverless personal expense tracker built using AWS services. Users can 
 
 Here is what the Simple Expense Tracker looks like:
 
-![Simple Expense Tracker](https://github.com/Oshinyemio/simple-expense-tracker/blob/main/assets/Screenshot.png?raw=true)
+![Simple Expense Tracker](https://github.com/Oshinyemio/simple-expense-tracker/blob/main/assets/screenshot.png?raw=true)
 
 ---
 
