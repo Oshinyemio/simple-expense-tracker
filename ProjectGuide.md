@@ -1,599 +1,783 @@
-# Project Guide: Serverless Personal Expense Tracker
-
-This document provides a detailed, step-by-step guide on how the Serverless Personal Expense Tracker was built on AWS. It covers service choices, configuration details, challenges encountered, and solutions implemented. Use this as a comprehensive reference separate from the README.
+# 📗 Project Guide: Simple Expense Tracker
 
 ---
 
-## Table of Contents
+## 📝 Description
 
-1. [Introduction](#introduction)
-2. [Service Selection and Motivations](#service-selection-and-motivations)
-3. [Prerequisites](#prerequisites)
-4. [Step-by-Step Build Process](#step-by-step-build-process)
+This guide walks you through building a **Simple Expense Tracker** using a fully serverless architecture on AWS. You’ll create:
 
-   1. [Create DynamoDB Table](#1-create-dynamodb-table)
-   2. [Create Lambda Functions](#2-create-lambda-functions)
+- A **DynamoDB** table to store expenses.
+- Two **Lambda functions** (`AddExpenseFunction` and `GetExpenseFunction`) written in Python.
+- A **REST API** via **API Gateway** to expose these functions.
+- A lightweight **HTML/JavaScript** frontend (`TestExpense.html`) for testing.
 
-      * [AddExpenseFunction (POST)](#21-addexpensefunction-post)
-      * [GetExpensesFunction (GET)](#22-getexpensesfunction-get)
-   3. [Configure API Gateway](#3-configure-api-gateway)
-   4. [Host Frontend on S3 + CloudFront (Optional)](#4-host-frontend-on-s3--cloudfront-optional)
-   5. [Static Frontend (Single-User Model)](#5-static-frontend-single-user-model)
-   6. [Multi-User Frontend](#6-multi-user-frontend)
-5. [Common Challenges & Solutions](#common-challenges--solutions)
-6. [Next Steps & Future Improvements](#next-steps--future-improvements)
+Along the way, you’ll see common pitfalls—such as data type mismatches, CORS misconfigurations, and integration errors—and learn how to troubleshoot them. Wherever a visual check is useful, you’ll find a placeholder to insert screenshots or console logs.
 
 ---
 
-## Introduction
+## 📑 Table of Contents
 
-This Serverless Personal Expense Tracker allows users to add and view their personal expenses without managing servers. By leveraging AWS Lambda, API Gateway, and DynamoDB, the application remains cost-effective, scalable, and easy to maintain. This guide details every step, from service choices to troubleshooting, to help you understand exactly how it all fits together.
-
----
-
-## Service Selection and Motivations
-
-**1. Amazon DynamoDB**
-
-* **Why?** NoSQL, serverless, auto-scaling, and Free Tier eligible. Perfect for storing expense records without schema restrictions.
-* **Key Points**: On-Demand billing mode (no capacity planning), composite primary key (`userId` + `timestamp`) for grouping and sorting.
-
-**2. AWS Lambda**
-
-* **Why?** Serverless compute that only bills per request/compute time. No need to manage servers.
-* **Key Points**: Used for backend logic (POST `/expenses` and GET `/expenses`), automatically scales with usage.
-
-**3. Amazon API Gateway**
-
-* **Why?** Managed REST API front door that integrates seamlessly with Lambda (proxy integration), handles CORS, rate limiting, and can scale automatically.
-* **Key Points**: Exposes secure HTTPS endpoints for the frontend to interact with Lambda.
-
-**4. Amazon S3 + CloudFront**
-
-* **Why?** Simple, cost-effective static website hosting. CloudFront adds HTTPS and global distribution.
-* **Key Points**: Hosts the HTML/CSS/JavaScript frontend, allowing users to interact with the API.
-
-**5. Amazon Cognito (Future)**
-
-* **Why?** To replace manual `userId` entry with secure, authenticated identities.
-* **Key Points**: Simplifies user login/signup, issues JWTs, integrates with API Gateway authorizers.
-
----
-
-## Prerequisites
-
-* **AWS Account** with permissions to create:
-
-  * DynamoDB tables
-  * Lambda functions
-  * API Gateway REST APIs
-  * IAM Roles/Policies
-  * (Optional) S3 buckets and CloudFront distributions
-* **AWS CLI** (optional, for local testing/deployment)
-* **Basic knowledge** of:
-
-  * JavaScript, HTML, CSS (frontend)
-  * Python (backend Lambda)
-  * AWS Console (IAM, DynamoDB, Lambda, API Gateway)
+1. [Introduction](#introduction)  
+2. [Service Selection & Motivation](#service-selection--motivation)  
+   - Why These Services?  
+   - Key Points & Justifications  
+3. [Prerequisites](#prerequisites)  
+4. [Step-by-Step Build Process](#step-by-step-build-process)  
+   1. [Create the DynamoDB Table](#1-create-the-dynamodb-table)  
+   2. [Develop & Deploy `AddExpenseFunction`](#2-develop--deploy-addexpensefunction)  
+      - Initial Implementation  
+      - Granting Permissions  
+      - Testing & Debugging (Decimal vs. Float)  
+   3. [Develop & Deploy `GetExpenseFunction`](#3-develop--deploy-getexpensefunction)  
+      - Initial Implementation  
+      - Adding Decimal Encoder  
+      - CORS & Proxy Integration  
+   4. [Create & Configure API Gateway](#4-create--configure-api-gateway)  
+      - REST API vs. Alternatives  
+      - Defining Resources & Methods  
+      - Enabling CORS Headers  
+      - Deploying to “prod” Stage  
+   5. [Test with Postman & HTML Form](#5-test-with-postman--html-form)  
+      - Postman Examples  
+      - Basic HTML Form for POST  
+      - Troubleshooting Missing Responses  
+   6. [Enhance Frontend to View Expenses](#6-enhance-frontend-to-view-expenses)  
+      - Styling with Boogaloo Font  
+      - Adding GET Logic & Error Handling  
+      - Verifying Lambda Proxy Integration  
+5. [Common Mistakes & Checks](#common-mistakes--checks)  
+6. [Image Placeholders](#image-placeholders)  
+7. [Conclusion & Next Steps](#conclusion--next-steps)  
 
 ---
 
-## Step-by-Step Build Process
+## 📖 Introduction
 
-### 1. Create DynamoDB Table
+Building a serverless expense tracker lets you practice core AWS services—DynamoDB for storage, Lambda for compute, and API Gateway for HTTP endpoints—while also troubleshooting real-world integration challenges. The flow is:
 
-1. **Go to**: AWS Console → DynamoDB → Tables → **Create table**.
-2. **Table name**: `Expenses`
-3. **Primary key**:
+1. **Store** expense items (userId, timestamp, amount, category, description) in DynamoDB.  
+2. **Invoke** a Python-based Lambda function to write/read items.  
+3. **Expose** those functions via API Gateway endpoints (`POST /expenses` and `GET /expenses`).  
+4. **Test** with a simple HTML page (`TestExpense.html`) that calls the endpoints using JavaScript.  
 
-   * Partition key: `userId` (String)
-   * Sort key: `timestamp` (String)
-4. **Billing Mode**: Select **On-Demand**.
+By the end, you’ll have a functioning endpoint for adding expenses, retrieving them, and a local HTML page you can easily extend or host.
 
-   * No need to provision RCU/WCU; automatically scales. Free Tier covers up to 25M read/write per month.
-5. **Secondary Indexes**: Skip for prototype (we'll use scan + filter in Lambda). For production, consider a GSI on `userId`.
-6. **Create** and wait until the status is **Active**.
+---
 
-> **Result**: A table storing items like:
+## ⚙️ Service Selection & Motivation
+
+### Why These Services?
+
+- **DynamoDB**  
+  - ✅ *Fully managed NoSQL database*—eliminates server provisioning.  
+  - ✅ *On-demand capacity* keeps you within AWS Free Tier.  
+- **AWS Lambda**  
+  - ✅ *Serverless compute*—only pay per execution.  
+  - ✅ *Easy integration* with DynamoDB and API Gateway.  
+- **API Gateway (REST API)**  
+  - ✅ *Standard HTTP methods* (GET, POST) suit CRUD operations in expense tracking.  
+  - ✅ *Built-in CORS support* to connect frontend and backend seamlessly.  
+- **HTML + JavaScript Frontend**  
+  - ✅ *Minimal dependencies*—quick to develop and test locally.  
+  - ✅ Use of **Boogaloo** font from Google Fonts keeps the UI fun and readable.
+
+### Key Points & Justifications
+
+- **Keep Things Simple**  
+  - On-demand DynamoDB settings (+ defaults) let you stay in the free tier.  
+  - Python in Lambda leverages familiarity for faster debugging.  
+- **API Choice: REST**  
+  - RESTful endpoints map directly to our Lambda functions.  
+  - Alternatives like GraphQL or gRPC add unnecessary complexity for basic CRUD.  
+- **Local Test Page**  
+  - `TestExpense.html` lets you iterate quickly before any deployment.  
+  - No need to host on S3 until you want public access.  
+
+---
+
+## 📋 Prerequisites
+
+Before you begin, ensure you have:
+
+1. **An AWS Account** with permissions to create DynamoDB tables, Lambda functions, and API Gateway APIs.  
+2. **AWS CLI** configured locally (optional, for exporting/importing API Gateway configs).  
+3. **Python 3.x** installed locally (for syntax reference/testing).  
+4. **Postman** or **curl** (for manual endpoint testing).  
+5. **Text Editor** (e.g., VS Code) for editing code and HTML.  
+6. Basic familiarity with JavaScript (ES6) and Python.
+
+---
+
+## 🛠 Step-by-Step Build Process
+
+### 1. Create the DynamoDB Table
+
+#### Steps:
+
+1. Open the **DynamoDB Console** → Click **Create table**.  
+2. Set **Table name**: `Expenses`  
+3. **Partition key**: `userId` (String)  
+4. **Sort key**: `timestamp` (String)  
+5. Under **Capacity mode**, choose **On-demand** (to stay in Free Tier).  
+6. Leave all other settings as default → Click **Create**.
+
+> **Common Mistake #1**: Forgetting to set **On-demand** capacity can incur unexpected costs.  
+> **Check**: Verify under **Capacity** in the DynamoDB Dashboard that “On-demand” is active.
+
+![DynamoDB On-Demand Settings](assets/dynamodb-on-demand.png)
+
+---
+
+### 2. Develop & Deploy `AddExpenseFunction`
+
+#### 2.1 Initial Implementation
+
+Create `backend/AddExpenseFunction.py` with:
+
+```python
+import json
+import boto3
+from datetime import datetime
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Expenses')
+
+def lambda_handler(event, context):
+    body = json.loads(event['body'])
+
+    user_id    = body['userId']
+    amount     = float(body['amount'])      # ❌ Float conversion can break DynamoDB item storage
+    category   = body['category']
+    description= body.get('description', '')
+    timestamp  = datetime.utcnow().isoformat()
+
+    item = {
+        'userId':     user_id,
+        'timestamp':  timestamp,
+        'amount':     amount,
+        'category':   category,
+        'description':description
+    }
+
+    table.put_item(Item=item)
+
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'message': 'Expense added successfully'})
+    }
+````
+
+> **Common Mistake #2**: Using `float(body['amount'])` directly. DynamoDB’s `Number` type expects a stringified decimal or a `decimal.Decimal` object. Converting to float can cause “ValidationException”.
+
+#### 2.2 Granting Permissions
+
+1. After deploying the function, navigate to **Configuration** → **Permissions** in the Lambda console.
+2. Under **Execution Role**, click the role name to open the IAM console.
+3. Click **Add permissions** → **Attach policies**.
+4. Search for **AmazonDynamoDBFullAccess** → Select it → **Add permissions**.
+
+> **Check**: In the IAM role’s **Permissions** tab, you should see **AmazonDynamoDBFullAccess** attached.
+
+![Lambda IAM Permissions](assets/lambda-permissions.png)
+
+#### 2.3 Testing & Debugging (Decimal vs. Float)
+
+1. Run a **Lambda Test** with this payload:
+
+   ```json
+   {
+     "body": "{\"userId\":\"user1\",\"amount\":\"20.5\",\"category\":\"Groceries\",\"description\":\"Milk and eggs\"}"
+   }
+   ```
+2. If you see an error like:
+
+   ```
+   ValidationException: One or more parameter values were invalid: Type mismatch for key amount expected: S, given: N
+   ```
+
+   it means the float conversion failed.
+3. **Fix** by switching to `decimal.Decimal`:
+
+```python
+import json
+import boto3
+from datetime import datetime
+from decimal import Decimal
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Expenses')
+
+def lambda_handler(event, context):
+    print("Received event:", event)
+
+    try:
+        body = json.loads(event['body'])
+        user_id     = body['userId']
+        amount      = Decimal(body['amount'])   # ✅ Use Decimal for DynamoDB compatibility
+        category    = body['category']
+        description = body.get('description', '')
+        timestamp   = datetime.utcnow().isoformat()
+
+        item = {
+            'userId':     user_id,
+            'timestamp':  timestamp,
+            'amount':     amount,
+            'category':   category,
+            'description':description
+        }
+
+        table.put_item(Item=item)
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps({'message': 'Expense added successfully'})
+        }
+    except Exception as e:
+        print("Error:", str(e))
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e)})
+        }
+```
+
+> **Check**: After saving, re-run the Lambda test. If successful, you’ll see:
 >
 > ```json
-> {
->   "userId": "user1",
->   "timestamp": "2025-06-02T00:38:22.768996",
->   "amount": 10.0,
->   "category": "Food",
->   "description": ""
-> }
+> { "message": "Expense added successfully" }
 > ```
 
 ---
 
-### 2. Create Lambda Functions
+### 3. Develop & Deploy `GetExpenseFunction`
 
-We need two Lambdas:
+#### 3.1 Initial Implementation
 
-* **AddExpenseFunction** (POST `/expenses`)
-* **GetExpensesFunction** (GET `/expenses?userId=XYZ`)
+Create `backend/GetExpenseFunction.py`:
 
-#### 2.1. AddExpenseFunction (POST)
+```python
+import json
+import boto3
+from boto3.dynamodb.conditions import Key
 
-1. **Navigate**: AWS Console → Lambda → **Create function**.
-2. **Function name**: `AddExpenseFunction`
-3. **Runtime**: Python 3.12
-4. **Execution Role**: Create new role with basic Lambda permissions.
-5. **Lambda Code**:
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Expenses')
 
-   ```python
-   import json
-   import boto3
-   from datetime import datetime
-   from decimal import Decimal
+def lambda_handler(event, context):
+    print("Received event:", event)
 
-   dynamodb = boto3.resource('dynamodb')
-   table = dynamodb.Table('Expenses')
+    query_params = event.get('queryStringParameters')
+    if not query_params or 'userId' not in query_params:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({'error': "Missing 'userId' in query parameters"})
+        }
 
-   class DecimalEncoder(json.JSONEncoder):
-       def default(self, o):
-           if isinstance(o, Decimal):
-               return float(o)
-           return super(DecimalEncoder, self).default(o)
+    user_id = query_params['userId']
+    response = table.query(KeyConditionExpression=Key('userId').eq(user_id))
+    expenses = response.get('Items', [])
 
-   def lambda_handler(event, context):
-       print("🚀 Event received:", json.dumps(event))
+    return {
+        'statusCode': 200,
+        'body': json.dumps({'expenses': expenses})
+    }
+```
 
-       method = event.get('httpMethod', 'POST')
-       if method != 'POST':
-           return {
-               'statusCode': 405,
-               'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-               'body': json.dumps({'error': 'Method not allowed'})
-           }
+> **Common Mistake #3**: Not encoding `Decimal` types when returning JSON—DynamoDB items contain `Decimal` objects, which `json.dumps` can’t serialize by default.
 
-       try:
-           body = json.loads(event.get('body', '{}'))
-           print("📥 POST body:", body)
+#### 3.2 Adding Decimal Encoder
 
-           user_id = body.get('userId')
-           if not user_id:
-               raise ValueError("Missing required field: userId")
+Update to handle `Decimal`:
 
-           amount = Decimal(str(body.get('amount', 0)))
-           category = body.get('category')
-           description = body.get('description', '')
-           timestamp = datetime.utcnow().isoformat()
+```python
+import json
+import boto3
+from decimal import Decimal
+from boto3.dynamodb.conditions import Key
 
-           item = {
-               'userId': user_id,
-               'timestamp': timestamp,
-               'amount': amount,
-               'category': category,
-               'description': description
-           }
-           print("💾 Saving item:", item)
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        return super().default(obj)
 
-           table.put_item(Item=item)
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('Expenses')
 
-           response = {
-               'statusCode': 200,
-               'headers': {
-                   'Content-Type': 'application/json',
-                   'Access-Control-Allow-Origin': '*'
-               },
-               'body': json.dumps({'message': 'Expense added successfully'})
-           }
-           print("✅ POST response:", response)
-           return response
+def lambda_handler(event, context):
+    print("🔍 Received event:", json.dumps(event))
 
-       except Exception as e:
-           print("❌ POST error:", str(e))
-           return {
-               'statusCode': 400,
-               'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-               'body': json.dumps({'error': str(e)})
-           }
-   ```
-6. **Attach DynamoDB permissions**:
+    try:
+        query_params = event.get('queryStringParameters')
+        if not query_params or 'userId' not in query_params:
+            raise ValueError("Missing 'userId' in query parameters")
 
-   * Go to **Configuration → Permissions → Execution role**.
-   * Click the role name → **Add permissions → Attach policies** → search for **AmazonDynamoDBFullAccess** (or custom policy granting `PutItem` on `Expenses` table).
-7. **Deploy** the function.
-8. **Test**:
+        user_id = query_params['userId']
+        response = table.query(KeyConditionExpression=Key('userId').eq(user_id))
+        expenses = response.get('Items', [])
 
-   * Create a test event with:
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'       # Allowed for CORS
+            },
+            'body': json.dumps({'expenses': expenses}, cls=DecimalEncoder)
+        }
+    except Exception as e:
+        print("❌ Error:", str(e))
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({'error': str(e)})
+        }
+```
 
-     ```json
-     {
-       "httpMethod": "POST",
-       "body": "{\"userId\":\"user1\",\"amount\":12.34,\"category\":\"Food\",\"description\":\"Lunch\"}"
-     }
-     ```
-   * Check CloudWatch logs for "Saving item" and verify the item in DynamoDB.
-
-#### 2.2. GetExpensesFunction (GET)
-
-1. **Navigate**: AWS Console → Lambda → **Create function**.
-2. **Function name**: `GetExpensesFunction`
-3. **Runtime**: Python 3.12
-4. **Execution Role**: (reuse the same or a new role with read permissions).
-5. **Lambda Code**:
-
-   ```python
-   import json
-   import boto3
-   from decimal import Decimal
-
-   dynamodb = boto3.resource('dynamodb')
-   table = dynamodb.Table('Expenses')
-
-   class DecimalEncoder(json.JSONEncoder):
-       def default(self, o):
-           if isinstance(o, Decimal):
-               return float(o)
-           return super(DecimalEncoder, self).default(o)
-
-   def lambda_handler(event, context):
-       print("🚀 Event received:", json.dumps(event))
-       method = event.get('httpMethod', 'GET')
-
-       if method != 'GET':
-           return {
-               'statusCode': 405,
-               'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-               'body': json.dumps({'error': 'Method not allowed'})
-           }
-
-       try:
-           params = event.get('queryStringParameters') or {}
-           user_id = params.get('userId')
-           print("📌 Extracted userId:", user_id)
-
-           if not user_id:
-               raise ValueError("Missing required field: userId")
-
-           response = table.scan()
-           items = response.get('Items', [])
-           print(f"📦 Scanned {len(items)} items from DB")
-
-           user_expenses = [item for item in items if item.get('userId') == user_id]
-           print(f"✅ Filtered to {len(user_expenses)} expenses for user '{user_id}'")
-
-           return {
-               'statusCode': 200,
-               'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-               'body': json.dumps({'expenses': user_expenses}, cls=DecimalEncoder)
-           }
-
-       except Exception as e:
-           print("❌ GET error:", str(e))
-           return {
-               'statusCode': 400,
-               'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-               'body': json.dumps({'error': str(e)})
-           }
-   ```
-6. **Attach DynamoDB read permissions**:
-
-   * In IAM role, attach **AmazonDynamoDBReadOnlyAccess** (or a custom policy for `Scan` on `Expenses`).
-7. **Deploy** and **Test**:
-
-   * Use test event:
-
-     ```json
-     {
-       "httpMethod": "GET",
-       "queryStringParameters": { "userId": "user1" }
-     }
-     ```
-   * Verify CloudWatch prints scanned items and filtered expenses.
+> **Check**: Test in Lambda with a payload such as:
+>
+> ```json
+> { "queryStringParameters": { "userId": "user1" } }
+> ```
+>
+> You should get back:
+>
+> ```json
+> { "expenses": [ { "userId": "user1", "timestamp": "...", "amount": 20.5, ... } ] }
+> ```
 
 ---
 
-### 3. Configure API Gateway
+### 4. Create & Configure API Gateway
 
-#### 3.1. Create REST API
+#### 4.1 REST API vs. Alternatives
 
-1. Go to **API Gateway → Create API → REST API → Build**.
-2. **API name**: `ExpenseTrackerAPI`.
-3. Click **Create API**.
+* **Why REST?**
 
-#### 3.2. Create `/expenses` Resource
+  * CRUD-friendly design (GET/POST).
+  * Native support in API Gateway, no extra infrastructure.
+  * Easy to test with Postman or browser.
 
-1. In the **Resources** panel, click **Actions → Create Resource**.
-2. **Resource Name**: `expenses` (path `/expenses`).
-3. Click **Create Resource**.
+#### 4.2 Defining Resources & Methods
 
-#### 3.3. Configure POST /expenses
+1. Open **API Gateway Console** → **Create API** → **REST API (not private)**.
+2. Name it: `ExpenseTrackerAPI`.
+3. Under **Resources**, click **Actions** → **Create Resource**:
 
-1. Select `/expenses` → **Actions → Create Method → POST → ✔**.
-2. **Integration Type**: Lambda Proxy → **Lambda Function**: `AddExpenseFunction` → **Save**.
-3. **Enable CORS**: Select POST → **Actions → Enable CORS** → **Enable CORS and replace existing CORS headers**.
+   * **Resource Name**: `expenses`
+   * **Resource Path**: `/expenses`
+4. With `/expenses` selected, click **Actions** → **Create Method** → **POST**.
 
-#### 3.4. Configure GET /expenses
+   * Integration type: **Lambda Function** → Choose `AddExpenseFunction`.
+   * Check **Use Lambda Proxy integration**.
+5. Still under `/expenses`, click **Actions** → **Create Method** → **GET**.
 
-1. Select `/expenses` → **Actions → Create Method → GET → ✔**.
-2. **Integration Type**: Lambda Proxy → **Lambda Function**: `GetExpensesFunction` → **Save**.
-3. **Enable CORS** on GET as well.
+   * Integration type: **Lambda Function** → Choose `GetExpenseFunction`.
+   * Check **Use Lambda Proxy integration**.
 
-#### 3.5. Deploy API
+> **Common Mistake #4**: Forgetting to enable **Lambda Proxy Integration**. Without it, query string parameters and event structures differ. Make sure **“Use Lambda Proxy Integration”** is checked for both methods.
 
-1. **Actions → Deploy API**.
-2. **Deployment stage**: `[New Stage]` → `prod` → **Deploy**.
-3. Copy **Invoke URL**:
+#### 4.3 Enabling CORS Headers
+
+1. Select the **POST** method under `/expenses` → click **Method Response**.
+2. Add a response header named `Access-Control-Allow-Origin`.
+3. Go back and select **Integration Response** → expand the `200` status code → click the **header mapping** → add:
 
    ```
-   https://{api-id}.execute-api.{region}.amazonaws.com/prod
+   Access-Control-Allow-Origin : '*'  
    ```
-4. **Endpoints**:
+4. Repeat steps 1–3 for the **GET** method.
+5. Optionally, enable **OPTIONS** method on `/expenses` and configure the same CORS headers to handle preflight requests.
 
-   * **POST**: `https://{api-id}.execute-api.{region}.amazonaws.com/prod/expenses`
-   * **GET**: `https://{api-id}.execute-api.{region}.amazonaws.com/prod/expenses?userId=user1`
+> **Check**: In **Method Execution** → **Test**, invoke both GET and POST. Observe that `Access-Control-Allow-Origin: *` appears in response headers.
+
+#### 4.4 Deploying to “prod” Stage
+
+1. In API Gateway, click **Actions** → **Deploy API**.
+2. **Deployment stage**: Create a new stage named `prod`.
+3. Note the **Invoke URL**, e.g.:
+
+   ```
+   https://<YOUR_API_ID>.execute-api.<region>.amazonaws.com/prod/expenses
+   ```
+   
+---
+
+### 5. Test with Postman & HTML Form
+
+#### 5.1 Postman Examples
+
+* **POST Request**
+
+  ```
+  POST https://<YOUR_API_ID>.execute-api.<region>.amazonaws.com/prod/expenses
+  Headers:
+    Content-Type: application/json
+
+  Body (raw JSON):
+  {
+    "userId": "user1",
+    "amount": "25",
+    "category": "Transport",
+    "description": "Bus fare"
+  }
+  ```
+
+  * Expect:
+
+    ```json
+    { "message": "Expense added successfully" }
+    ```
+  * If you see a CORS error or missing headers, revisit your **Integration Response** → CORS header mappings in API Gateway.
+
+* **GET Request**
+
+  ```
+  GET https://<YOUR_API_ID>.execute-api.<region>.amazonaws.com/prod/expenses?userId=user1
+  ```
+
+  * Expect:
+
+    ```json
+    {
+      "expenses": [
+        {
+          "userId": "user1",
+          "timestamp": "2025-06-04T12:34:56.789Z",
+          "amount": 25.0,
+          "category": "Transport",
+          "description": "Bus fare"
+        }
+      ]
+    }
+    ```
+  * If you receive `"expenses": null` or an error, ensure your Lambda returns `expenses` in the JSON body and that **Lambda Proxy** is enabled.
+
+!![Postman GET Success](assets/postman-post-success.png)
+
+#### 5.2 Basic HTML Form for POST
+
+Create a minimal `TestExpense.html` under `frontend/`:
+
+```html
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Test Add Expense API</title>
+  </head>
+  <body>
+    <h2>Submit an Expense</h2>
+    <form id="expenseForm">
+      <label>Amount: <input name="amount" required /></label><br />
+      <label>Category: <input name="category" required /></label><br />
+      <label>Description: <input name="description" /></label><br />
+      <button type="submit">Submit</button>
+    </form>
+
+    <p id="response" style="margin-top: 1rem; font-weight: bold;"></p>
+
+    <script>
+      document.getElementById('expenseForm').onsubmit = async function (e) {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const data = Object.fromEntries(formData.entries());
+        data.userId = "user1"; // Hardcoded user for now
+
+        try {
+          const res = await fetch(
+            'https://<YOUR_API_ID>.execute-api.<region>.amazonaws.com/prod/expenses',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data),
+            }
+          );
+          const result = await res.json();
+
+          if (res.ok) {
+            document.getElementById('response').innerText =
+              result.message || 'Expense added!';
+            document.getElementById('response').style.color = 'green';
+            e.target.reset(); // Clear the form
+          } else {
+            document.getElementById('response').innerText =
+              result.error || 'Something went wrong';
+            document.getElementById('response').style.color = 'red';
+          }
+        } catch (err) {
+          document.getElementById('response').innerText =
+            'Network error or invalid response';
+          document.getElementById('response').style.color = 'red';
+          console.error(err);
+        }
+      };
+    </script>
+  </body>
+</html>
+```
+
+> **Common Mistake #5**: Forgetting to add CORS headers in API Gateway → results in `Access to fetch at ... from origin ... has been blocked by CORS policy`.
+> **Check**: Open browser DevTools → **Console** → Look for CORS errors. If present, revisit **API Gateway CORS settings**.
+
+![CORS Error in Browser Console](assets/cors-error-console.png)
 
 ---
 
-### 4. Host Frontend on S3 + CloudFront (Optional)
+### 6. Enhance Frontend to View Expenses
 
-1. **S3**:
+#### 6.1 Styled HTML + JavaScript (`TestExpense.html`)
 
-   * Create a bucket (e.g., `expense-tracker-frontend`).
-   * Enable **Static website hosting** with index document `index.html`.
-   * Upload the HTML file.
-   * Configure bucket policy or object ACL for public read.
-   * Note the **Website Endpoint** (e.g., `http://expense-tracker-frontend.s3-website-us-east-1.amazonaws.com`).
-
-2. **CloudFront** (optional):
-
-   * Create a CloudFront distribution with the S3 website endpoint as the origin.
-   * Configure default cache behavior (HTTPS redirect, GET/HEAD only).
-   * Use the distribution domain (e.g., `d123abc.cloudfront.net`) as your website URL.
-
----
-
-### 5. Static Frontend (Single-User Model)
-
-Below is the working HTML/JS for the version where `userId` is hardcoded to `user1`.
+Replace the simple form with a more polished page that can **both** add and view expenses:
 
 ```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Personal Expense Tracker (Static user)</title>
+  <meta charset="UTF-8" />
+  <title>Expense Tracker</title>
+
+  <!-- Google Font: Boogaloo -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Boogaloo&display=swap"
+    rel="stylesheet"
+  />
+
   <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: auto; }
-    input, button { padding: 8px; margin: 6px 0; width: 100%; }
-    form { border: 1px solid #ccc; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-    #response { font-weight: bold; }
-    ul { list-style-type: none; padding: 0; }
-    li { background: #f9f9f9; padding: 10px; margin-bottom: 6px; border-radius: 4px; }
+    body {
+      font-family: 'Boogaloo', cursive;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 2rem;
+      color: #333;
+    }
+
+    h1,
+    h2 {
+      text-align: center;
+      color: #2c3e50;
+    }
+
+    label {
+      font-weight: bold;
+      margin-top: 10px;
+    }
+
+    input,
+    textarea,
+    button {
+      font-family: 'Boogaloo', cursive;
+      width: 100%;
+      padding: 10px;
+      margin-top: 6px;
+      margin-bottom: 12px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+      font-size: 1.1rem;
+    }
+
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    button:hover {
+      background-color: #2980b9;
+    }
+
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #fff;
+      padding: 2rem;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .expense {
+      background: #ecf0f1;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 8px;
+    }
+
+    hr {
+      margin: 30px 0;
+      border: none;
+      border-top: 2px dashed #ccc;
+    }
   </style>
 </head>
 <body>
+  <div class="container">
+    <h1>Simple Expense Tracker</h1>
 
-  <h2>Submit a New Expense</h2>
-  <form id="expenseForm">
+    <!-- Add Expense Section -->
+    <h2>Add Expense</h2>
+    <label>User ID:</label>
+    <input type="text" id="userId" value="user1" />
     <label>Amount:</label>
-    <input name="amount" type="number" step="0.01" required>
-
+    <input type="number" id="amount" placeholder="e.g. 20.50" />
     <label>Category:</label>
-    <input name="category" required>
+    <input type="text" id="category" placeholder="e.g. Food" />
+    <label>Description:</label>
+    <textarea id="description" placeholder="e.g. Lunch with friends"></textarea>
+    <button onclick="addExpense()">Add Expense</button>
+    <hr />
 
-    <label>Description (optional):</label>
-    <input name="description">
-
-    <button type="submit">Add Expense</button>
-  </form>
-
-  <p id="response"></p>
-
-  <h3>All Expenses</h3>
-  <button onclick="loadExpenses()">Refresh</button>
-  <ul id="expenseList">Loading...</ul>
+    <!-- View Expenses Section -->
+    <h2>Get Expenses</h2>
+    <button onclick="getExpenses()">View My Expenses</button>
+    <div id="output"></div>
+  </div>
 
   <script>
-    const apiBaseUrl = 'https://YOUR_API_ID.execute-api.YOUR_REGION.amazonaws.com/prod/expenses';
-    const staticUserId = "user1";
+    const apiBaseUrl =
+      'https://<YOUR_API_ID>.execute-api.<region>.amazonaws.com/prod/expenses';
 
-    document.getElementById('expenseForm').onsubmit = async function(e) {
-      e.preventDefault();
+    async function addExpense() {
+      const userId = document.getElementById('userId').value.trim();
+      const amount = document.getElementById('amount').value.trim();
+      const category = document.getElementById('category').value.trim();
+      const description = document
+        .getElementById('description')
+        .value.trim();
 
-      const formData = new FormData(e.target);
-      const data = Object.fromEntries(formData.entries());
-      data.userId = staticUserId;
+      const payload = { userId, amount, category, description };
 
       try {
-        const res = await fetch(apiBaseUrl, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
+        const raw = await fetch(apiBaseUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
         });
 
-        const result = await res.json();
-        console.log("✅ POST response:", result);
+        const result = await raw.json();
+        console.log('📦 POST API Response:', result);
 
-        if (res.ok) {
-          document.getElementById('response').innerText = result.message || 'Expense added successfully!';
-          document.getElementById('response').style.color = 'green';
-          e.target.reset();
-          loadExpenses();
+        if (raw.ok) {
+          alert('✅ Expense added successfully');
         } else {
-          document.getElementById('response').innerText = result.error || 'Error occurred';
-          document.getElementById('response').style.color = 'red';
+          alert('❌ Error: ' + (result.error || 'Something went wrong'));
         }
-      } catch (err) {
-        document.getElementById('response').innerText = 'Network error or invalid response';
-        document.getElementById('response').style.color = 'red';
-        console.error(err);
-      }
-    };
-
-    async function loadExpenses() {
-      const list = document.getElementById('expenseList');
-      list.innerHTML = 'Loading...';
-
-      try {
-        const url = `${apiBaseUrl}?userId=${staticUserId}`;
-        const res = await fetch(url);
-        const data = await res.json();
-        console.log("📥 GET response data:", data);
-
-        list.innerHTML = '';
-        if (data.expenses && data.expenses.length > 0) {
-          data.expenses.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-          data.expenses.forEach(exp => {
-            const item = document.createElement('li');
-            item.textContent = `${exp.category}: $${exp.amount} — ${exp.description || ''} (${new Date(exp.timestamp).toLocaleString()})`;
-            list.appendChild(item);
-          });
-        } else {
-          list.innerHTML = '<li>No expenses found.</li>';
-        }
-      } catch (err) {
-        list.innerHTML = '<li>Error loading expenses.</li>';
-        console.error(err);
+      } catch (error) {
+        console.error('❗ POST Error:', error);
+        alert('❌ Network error');
       }
     }
 
-    window.onload = loadExpenses;
-  </script>
+    async function getExpenses() {
+      const userId = document.getElementById('userId').value.trim();
+      const output = document.getElementById('output');
+      output.innerHTML = '🔄 Loading...';
 
+      try {
+        const raw = await fetch(
+          `${apiBaseUrl}?userId=${encodeURIComponent(userId)}`,
+          { method: 'GET' }
+        );
+
+        const data = await raw.json();
+        console.log('📦 Full Response Body:', data);
+        console.log('📊 Expenses Array:', data.expenses);
+
+        if (!raw.ok) throw new Error(data.error || 'Failed to fetch expenses');
+
+        const expenses = data.expenses || [];
+        if (expenses.length > 0) {
+          output.innerHTML = expenses
+            .map(
+              (exp) => `
+            <div class="expense">
+              <strong>${exp.timestamp}</strong><br>
+              ${exp.category} - $${exp.amount}<br>
+              <em>${exp.description}</em>
+            </div>
+          `
+            )
+            .join('');
+        } else {
+          output.innerHTML = '<p>📭 No expenses found.</p>';
+        }
+      } catch (error) {
+        console.error('❗ GET Error:', error);
+        output.innerHTML = `<p style="color:red;">Error: ${error.message}</p>`;
+      }
+    }
+  </script>
 </body>
 </html>
 ```
 
+> **Common Mistake #6**: Forgetting to enable **Lambda Proxy Integration** or mapping CORS headers for GET. This can result in `data.expenses` being `undefined`.
+> **Check**: In API Gateway, ensure “Use Lambda Proxy integration” is checked for both methods and that the `Access-Control-Allow-Origin` header is returned.
+
+![GET Request Results in Browser](assets/browse-get-results.png)
+
 ---
 
-### 6. Common Challenges & Solutions
+## ⚠️ Common Mistakes & Checks
 
-**Challenge 1: CORS Errors**
+1. **Decimal vs. Float**
 
-* **Symptom:** Browser console blocks the fetch: “Access to fetch at … from origin ‘null’ has been blocked by CORS policy.”
-* **Cause:** API Gateway or Lambda not including `Access-Control-Allow-Origin` header.
-* **Solution:**
+   * Mistake: Converting `amount` to `float` → DynamoDB rejects `Number` type.
+   * Fix: Use `decimal.Decimal(body['amount'])` in Python.
+   * Check: After deployment, run a Lambda test payload. Ensure no “ValidationException” related to data types.
 
-  1. In API Gateway, enable CORS for both POST and GET (Actions → Enable CORS).
-  2. In each Lambda response, include:
+2. **Missing IAM Permissions**
 
-     ```python
-     'headers': {
-       'Content-Type': 'application/json',
-       'Access-Control-Allow-Origin': '*'
-     }
+   * Mistake: Not attaching `AmazonDynamoDBFullAccess` (or a narrower policy) to Lambda’s role.
+   * Fix: In IAM console, attach DynamoDB access policy.
+   * Check: Under Lambda’s **Configuration → Permissions**, confirm DynamoDB policy is attached.
+
+3. **Lambda Proxy Integration**
+
+   * Mistake: Leaving “Use Lambda Proxy integration” unchecked → query parameters not passed properly.
+   * Fix: Check the box when configuring the method’s integration.
+   * Check: In **Method Execution → Integration Request**, ensure “Use Lambda Proxy integration” is enabled.
+
+4. **CORS Configuration**
+
+   * Mistake: Not returning `Access-Control-Allow-Origin` header → browser blocks requests.
+   * Fix: In **Integration Response**, add header mappings:
+
      ```
-  3. Redeploy API.
-
-**Challenge 2: Decimal JSON Serialization Error**
-
-* **Symptom:** Lambda GET returns: “Object of type Decimal is not JSON serializable.”
-* **Cause:** DynamoDB stores numbers as `Decimal`; `json.dumps()` cannot encode directly.
-* **Solution:** Add a custom encoder:
-
-  ```python
-  class DecimalEncoder(json.JSONEncoder):
-      def default(self, o):
-          if isinstance(o, Decimal):
-              return float(o)
-          return super(DecimalEncoder, self).default(o)
-  # Then use:
-  'body': json.dumps({'expenses': user_expenses}, cls=DecimalEncoder)
-  ```
-
-**Challenge 3: Missing userId in GET**
-
-* **Symptom:** Calling GET with `?userId=user1` still returns 400 “Missing required field: userId.”
-* **Cause:** API Gateway not forwarding query params to Lambda.
-* **Solution:**
-
-  1. In API Gateway → GET method → Integration Request → Mapping Templates → `application/json` →
-
-     ```velocity
-     {
-       "httpMethod": "$context.httpMethod",
-       "queryStringParameters": {
-         #foreach($param in $input.params().querystring.keySet())
-           "$param": "$util.escapeJavaScript($input.params().querystring.get($param))"
-           #if($foreach.hasNext),#end
-         #end
-       },
-       "body": $input.body
-     }
+     Access-Control-Allow-Origin : '*'
+     Access-Control-Allow-Methods: 'GET,POST,OPTIONS'
+     Access-Control-Allow-Headers: '*'
      ```
-  2. Save and **Deploy**.
+   * Check: In browser DevTools → **Network** tab, inspect your API response. Confirm CORS headers are present.
 
-**Challenge 4: expenses array undefined in Frontend**
+5. **Testing HTML Without Deployed Backend**
 
-* **Symptom:** Frontend’s `data.expenses` is undefined even though API returns 200.
-* **Cause:** Lambda Proxy Integration wraps the response; `body` is a stringified JSON. Doing `res.json()` yields an object with `body` as a string.
-* **Solution:**
-
-  ```js
-  const text = await res.text();
-  const data = JSON.parse(text);
-  // Now data.expenses is valid.
-  ```
-
-**Challenge 5: IAM AccessDenied for DynamoDB**
-
-* **Symptom:** Lambda logs show `AccessDeniedException: not authorized to perform: dynamodb:Scan`.
-* **Cause:** Lambda’s execution role lacks required DynamoDB permissions.
-* **Solution:**
-
-  * In IAM → Roles → select your Lambda role → Attach policy **AmazonDynamoDBReadOnlyAccess** for GET or **AmazonDynamoDBFullAccess** (or scoped policy) for POST.
+   * Mistake: Opening `TestExpense.html` locally before deploying Lambda & API → errors in console.
+   * Fix: Deploy API first, update `apiBaseUrl` in HTML, then open the HTML file.
+   * Check: In browser DevTools → **Console**, ensure no “Network error” or “CORS” warnings appear.
 
 ---
 
-## Next Steps & Future Improvements
 
-1. **Add Authentication with Amazon Cognito**
+## 🏁 Conclusion & Next Steps
 
-   * Replace manual `userId` with Cognito identity (Cognito User Pool).
-   * Use a Cognito Authorizer in API Gateway so that requests carry a JWT and Lambda extracts `userId` from the token.
-   * This ensures secure, real multi-user separation, preventing data spoofing.
+Congratulations—you now have a working serverless expense tracker! You’ve learned how to:
 
-2. **Optimize Data Access**
+* Create and configure a DynamoDB table within the Free Tier.
+* Write and debug Python Lambda functions, handling common data-type pitfalls.
+* Expose Lambda functions via a REST API in API Gateway with proper CORS settings.
+* Test endpoints using Postman and a lightweight HTML/JS frontend.
 
-   * Switch from `Scan` + filter to a DynamoDB Query on the partition key (`userId`).
-   * Consider a Global Secondary Index (e.g., partition on `userId`, sort by `timestamp`) for faster queries.
+### Next Steps
 
-3. **Pagination & Sorting**
+* 🔒 **Add Authentication** (e.g., Cognito or API Keys) to secure your endpoints.
+* 📈 **Visualize Expenses** with charts (perhaps using a React or Angular frontend).
+* 🔁 **Implement Pagination/Filtering** in `GetExpenseFunction` for large datasets.
+* 📦 **Package as a Serverless SAM or CDK Project** for Infrastructure-as-Code.
 
-   * Implement pagination (limit + `LastEvaluatedKey`) in GET handler.
-   * Allow sorting or filtering by category or date range in the backend.
-
-4. **Frontend Enhancements**
-
-   * Use a modern framework (React, Vue, Angular) for a more dynamic, component-based UI.
-   * Add form validation, inline editing, and delete functionality.
-   * Create summary cards (e.g., total spent this month, category breakdown).
-   * Visualize expense trends with charts (Chart.js, Recharts, or Amazon QuickSight).
-
-5. **Reporting & Analytics**
-
-   * Export expenses to CSV from the frontend.
-   * Use Amazon QuickSight on DynamoDB (via Athena or S3 export) to build dashboards.
-
-6. **CI/CD & Infrastructure as Code**
-
-   * Automate deployments with AWS SAM, CloudFormation, or Terraform.
-   * Use AWS CodePipeline or GitHub Actions to deploy changes to Lambda, API Gateway, and S3 on push.
-
----
-
-## Repository Structure
+Feel free to expand and customize—this foundation is yours to build on!
 
 ```
-expense-tracker/
-├── frontend/
-│   ├── index.html             # Static frontend (single-user or multi-user version)
-│   └── (assets, CSS, JS if separated)
-├── lambda/
-│   ├── AddExpenseFunction.py  # Lambda code for POST /expenses
-│   └── GetExpensesFunction.py # Lambda code for GET /expenses
-├── PROJECT_GUIDE.md           # This detailed step-by-step guide
-├── README.md                  # Summary, quickstart, architecture
-└── LICENSE                    # MIT License or similar
 ```
-
----
-
-## License
-
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
