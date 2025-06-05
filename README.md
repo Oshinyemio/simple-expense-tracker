@@ -27,6 +27,10 @@ A fully serverless personal expense tracker built using AWS services. Users can 
 
 ---
 
+## 🏗️ Project Architecture
+This project follows a serverless architecture using AWS managed services for scalability and cost-efficiency.
+![architecture-diagram](assets/architecture-diagram.png)
+
 ## 📂 Project Structure
 
 ```
@@ -34,6 +38,7 @@ A fully serverless personal expense tracker built using AWS services. Users can 
 simple-expense-tracker/
 │
 ├── assets/
+│   ├── architecture-diagram.png 🏗️ # Architecture diagram image
 │   ├── browse-get-results.png 🖼️           # Screenshot showing GET results from browser
 │   ├── cors-error-console.png 🖼️           # Browser console showing CORS error
 │   ├── dynamodb-on-demand.png 🖼️           # DynamoDB capacity setting
